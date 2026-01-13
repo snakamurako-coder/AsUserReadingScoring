@@ -722,10 +722,38 @@
         recognition.interimResults = false;
         recognition.continuous = true;
 
+        // Error Handler
+        recognition.onerror = event => {
+          console.warn("Speech recognition error", event.error);
+          if (event.error === 'not-allowed') {
+             alert("マイクへのアクセスが許可されていません。ブラウザの設定を確認してください。");
+             stopShadowing(false);
+          }
+           // 'no-speech' happens often and is not fatal, just ignore.
+           // Other errors: we will try to restart in onend.
+        };
+
+        // End Handler (Auto-restart)
+        recognition.onend = () => {
+          if (isShadowing) {
+            console.log("Recognition ended, restarting...");
+            try {
+              recognition.start();
+            } catch (e) {
+              console.error("Failed to restart recognition:", e);
+              // If restart fails (e.g. already started), just let it be.
+            }
+          }
+        };
+
         recognition.onresult = event => {
+          // Reset silence timer if needed (though we rely on continuous now)
           for (let i = event.resultIndex; i < event.results.length; ++i) {
             if (event.results[i].isFinal) {
-              finalTranscript += event.results[i][0].transcript + ' ';
+              const transcript = event.results[i][0].transcript;
+              finalTranscript += transcript + ' ';
+              // Optional: Update UI real-time?
+              // document.getElementById('user-stt-display').innerText = finalTranscript; 
             }
           }
         };
