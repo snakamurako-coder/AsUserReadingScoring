@@ -726,11 +726,11 @@
         recognition.onerror = event => {
           console.warn("Speech recognition error", event.error);
           if (event.error === 'not-allowed') {
-             alert("マイクへのアクセスが許可されていません。ブラウザの設定を確認してください。");
-             stopShadowing(false);
+            alert("マイクへのアクセスが許可されていません。ブラウザの設定を確認してください。");
+            stopShadowing(false);
           }
-           // 'no-speech' happens often and is not fatal, just ignore.
-           // Other errors: we will try to restart in onend.
+          // 'no-speech' happens often and is not fatal, just ignore.
+          // Other errors: we will try to restart in onend.
         };
 
         // End Handler (Auto-restart)
@@ -950,11 +950,9 @@
       return dp[m][n];
     }
 
-    // Fuzzy match for proper nouns / rare words
+    // Fuzzy match - DISABLE per user request (strict matching)
     function isFuzzyMatch(a, b) {
-      if (!a || !b) return false;
-      const dist = levenshtein(a, b);
-      return dist <= FUZZY_DISTANCE_THRESHOLD;
+      return false;
     }
 
     // Normalize quotes (smart quotes → ASCII apostrophe)
@@ -1073,11 +1071,10 @@
               dp[i + 1][j + 2] = { cost: cur.cost, prev: { i, j, op: 'w2' } };
             }
           } else {
-            // substitution / match (with fuzzy)
+            // match (STRICT only, fuzzy removed)
             if (j < m) {
-              const fuzzy = isFuzzyMatch(R[i], H[j]);
-              const cost = R[i] === H[j] || fuzzy ? 0 : 1;
-              const op = cost === 0 ? (R[i] === H[j] ? 'match' : 'fuzzy') : 'sub';
+              const cost = R[i] === H[j] ? 0 : 1;
+              const op = cost === 0 ? 'match' : 'sub';
               if (cur.cost + cost < dp[i + 1][j + 1].cost) {
                 dp[i + 1][j + 1] = { cost: cur.cost + cost, prev: { i, j, op } };
               }
@@ -1113,11 +1110,6 @@
         if (op === 'match') {
           matchR.add(i - 1);
           matchH.add(j - 1);
-        } else if (op === 'fuzzy') {
-          matchR.add(i - 1);
-          matchH.add(j - 1);
-          fuzzyR.add(i - 1);
-          fuzzyH.add(j - 1);
         } else if (op === 'sub') {
           missedIdx.push(i - 1);
           addedIdx.push(j - 1);
@@ -1198,8 +1190,6 @@
         } else if (missedIdx.includes(i)) {
           refHTML += `<span class="highlight-missing">${R[i]} </span>`;
           missingWords.push(R[i]);
-        } else if (fuzzyR.has(i)) {
-          refHTML += `<span>${R[i]} </span>`;
         } else if (matchR.has(i)) {
           refHTML += `<span>${R[i]} </span>`;
         } else {
@@ -1216,8 +1206,6 @@
           userHTML += `<span>${H[i]} </span>`;
         } else if (addedIdx.includes(i)) {
           userHTML += `<span class="highlight-added">${H[i]} </span>`;
-        } else if (fuzzyH.has(i)) {
-          userHTML += `<span>${H[i]} </span>`;
         } else if (matchH.has(i)) {
           userHTML += `<span>${H[i]} </span>`;
         } else {
@@ -1233,7 +1221,7 @@
       pArea.innerHTML = '';
       const seenWords = new Set();
       missingWords.forEach(word => {
-        const isWildcardWord = isWildcard(word) || /^_?wildcard_\d+_?$/i.test(word);
+        const isWildcardWord = /^__WILDCARD_\d+__$/i.test(word);
         if (!isWildcardWord && !seenWords.has(word)) {
           seenWords.add(word);
           const d = document.createElement('span');
@@ -1413,8 +1401,20 @@
       const diff = diffWordsWithIndex(r, h);
       const nonWildcardCount = diff.isWildcardToken.filter(v => !v).length;
       const dist = diff.totalCost;
+
+      // FIX: If reference has no valid words (e.g. only symbols or empty), 
+      // treat as 100% error (Score 0) instead of 0% error (Score 100).
+      if (nonWildcardCount === 0) {
+        return {
+          wer: 1.0,
+          dist: dist,
+          refLen: 0,
+          hypLen: diff.H.length
+        };
+      }
+
       return {
-        wer: nonWildcardCount ? dist / nonWildcardCount : 0,
+        wer: dist / nonWildcardCount,
         dist: dist,
         refLen: nonWildcardCount,
         hypLen: diff.H.length
